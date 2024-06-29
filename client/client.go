@@ -12,6 +12,7 @@ import (
 	"github.com/kardolus/chatgpt-cli/history"
 	"github.com/kardolus/chatgpt-cli/http"
 	"github.com/kardolus/chatgpt-cli/types"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 	UserRole                 = "user"
 	gptPrefix                = "gpt"
 )
+
 
 type Client struct {
 	Config       types.Config
@@ -79,13 +81,11 @@ func (c *Client) ListModels() ([]string, error) {
 	}
 
 	for _, model := range response.Data {
-		if strings.HasPrefix(model.Id, gptPrefix) {
 			if model.Id != c.Config.Model {
 				result = append(result, fmt.Sprintf("- %s", model.Id))
 				continue
 			}
 			result = append(result, fmt.Sprintf("* %s (current)", model.Id))
-		}
 	}
 
 	return result, nil
@@ -144,6 +144,7 @@ func (c *Client) Stream(input string) error {
 	c.prepareQuery(input)
 
 	body, err := c.createBody(true)
+  log.Debug().Msg(string(body))
 	if err != nil {
 		return err
 	}
