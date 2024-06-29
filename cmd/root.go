@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"errors"
@@ -9,13 +9,16 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/kardolus/chatgpt-cli/client"
 	"github.com/kardolus/chatgpt-cli/config"
 	"github.com/kardolus/chatgpt-cli/configmanager"
 	"github.com/kardolus/chatgpt-cli/history"
 	"github.com/kardolus/chatgpt-cli/http"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"github.com/kardolus/chatgpt-cli/logger"
 )
 
 var (
@@ -34,20 +37,23 @@ var (
 	GitVersion      string
 	ServiceURL      string
 	shell           string
+	pipeJson        bool
+	pipeContent     string
 )
 
-func main() {
-	var rootCmd = &cobra.Command{
-		Use:   "chatgpt",
-		Short: "ChatGPT CLI Tool",
-		Long: "A powerful ChatGPT client that enables seamless interactions with the GPT model. " +
-			"Provides multiple modes and context management features, including the ability to " +
-			"pipe custom context into the conversation.",
-		RunE:          run,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-	}
+var rootCmd = &cobra.Command{
+	Use:   "chatgpt",
+	Short: "ChatGPT CLI Tool",
+	Long: "A powerful ChatGPT client that enables seamless interactions with the GPT model. " +
+		"Provides multiple modes and context management features, including the ability to " +
+		"pipe custom context into the conversation.",
+	RunE:          run,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+}
 
+func init() {
+	rootCmd.PersistentFlags().BoolVarP(&pipeJson, "pipe-json", "", false, "use pipe to json user message ")
 	rootCmd.PersistentFlags().BoolVarP(&interactiveMode, "interactive", "i", false, "Use interactive mode")
 	rootCmd.PersistentFlags().BoolVarP(&queryMode, "query", "q", false, "Use query mode instead of stream mode")
 	rootCmd.PersistentFlags().BoolVar(&clearHistory, "clear-history", false, "Clear all prior conversation context for the current thread")
@@ -62,12 +68,18 @@ func main() {
 	rootCmd.PersistentFlags().IntVar(&maxTokens, "set-max-tokens", 0, "Set a new default max token size by specifying the max tokens")
 	rootCmd.PersistentFlags().IntVar(&contextWindow, "set-context-window", 0, "Set a new default context window size")
 
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Debug mode")
+	viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 	viper.AutomaticEnv()
+	cobra.OnInitialize(logger.InitLog)
+}
 
+func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -183,12 +195,16 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Check if there is input from the pipe (stdin)
 	stat, _ := os.Stdin.Stat()
+
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
-		pipeContent, err := io.ReadAll(os.Stdin)
+		pipeBytes, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("failed to read from pipe: %w", err)
 		}
-		client.ProvideContext(string(pipeContent))
+		pipeContent = string(pipeBytes)
+		if pipeJson {
+			client.ProvideContext(pipeContent)
+		}
 	}
 
 	if listModels {
@@ -259,6 +275,11 @@ func run(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return errors.New("you must specify your query")
 		}
+    //log.Debug().Msg(strings.Join(args," "))
+		if !pipeJson {
+			args = append(args, pipeContent)
+		}
+    log.Debug().Msg(strings.Join(args," "))
 		if queryMode {
 			result, _, err := client.Query(strings.Join(args, " "))
 			if err != nil {
